@@ -1096,6 +1096,73 @@ def handle_test_azure():
     # Emit results back to the client
     emit('azure_test_results', test_results)
 
+@socketio.on('request_screenshot')
+def handle_request_screenshot(data):
+    """Handle screenshot request for CSP-blocked websites"""
+    url = data.get('url', '')
+    
+    if not url:
+        emit('error', {'message': 'No URL provided for screenshot'})
+        return
+    
+    async def capture_screenshot():
+        try:
+            async with async_playwright() as p:
+                # Launch browser
+                browser = await p.chromium.launch(
+                    headless=True,
+                    args=['--no-sandbox', '--disable-dev-shm-usage']
+                )
+                
+                # Create new page
+                page = await browser.new_page()
+                
+                # Set viewport for consistent screenshots
+                await page.set_viewport_size({"width": 1200, "height": 800})
+                
+                # Navigate to URL with timeout
+                await page.goto(url, wait_until='networkidle', timeout=15000)
+                
+                # Wait a bit for dynamic content
+                await page.wait_for_timeout(2000)
+                
+                # Take screenshot
+                screenshot_bytes = await page.screenshot(
+                    full_page=False,
+                    type='png'
+                )
+                
+                # Convert to base64
+                screenshot_b64 = base64.b64encode(screenshot_bytes).decode('utf-8')
+                screenshot_data_url = f"data:image/png;base64,{screenshot_b64}"
+                
+                # Close browser
+                await browser.close()
+                
+                # Emit screenshot back to client
+                emit('website_screenshot', {
+                    'screenshot': screenshot_data_url,
+                    'url': url,
+                    'timestamp': datetime.now().strftime('%H:%M:%S'),
+                    'source': 'csp_fallback'
+                })
+                
+        except Exception as e:
+            emit('website_error', {
+                'error': f'Failed to capture screenshot: {str(e)}',
+                'url': url
+            })
+    
+    # Run screenshot capture in background
+    def run_screenshot():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(capture_screenshot())
+        loop.close()
+    
+    screenshot_thread = threading.Thread(target=run_screenshot, daemon=True)
+    screenshot_thread.start()
+
 def open_browser_to_dashboard():
     """Open browser to dashboard after short delay"""
     time.sleep(2)

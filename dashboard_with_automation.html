@@ -918,17 +918,20 @@
             
             // Show automation overlay
             showAutomationOverlay('Connecting to website...', 'Phase 1: Initial Connection', 'Establishing connection to ' + validUrl);
-            
-            // Hide waiting message and try to load the site in iframe
+              // Hide waiting message and try to load the site in iframe
             document.getElementById('waitingMessage').style.display = 'none';
-            document.getElementById('browserFrame').src = validUrl;
+            
+            // Try to load the site in iframe, but handle CSP errors gracefully
+            const iframe = document.getElementById('browserFrame');
+            iframe.src = validUrl;
+            
+            // Set up CSP error handling
+            setupIframeErrorHandling(iframe, validUrl);
             
             // Start monitoring
             socket.emit('start_monitoring', { url: validUrl });
             addAutomationLog(`[START] Beginning automated analysis of: ${validUrl}`, 'phase');
-        }
-
-        function stopMonitoring() {
+        }        function stopMonitoring() {
             automationActive = false;
             socket.emit('stop_monitoring');
             
@@ -943,6 +946,145 @@
             hideAutomationOverlay();
             
             addAutomationLog('[STOP] Monitoring stopped by user', 'error');
+        }
+
+        function setupIframeErrorHandling(iframe, url) {
+            let errorHandled = false;
+            
+            // Set up error detection for CSP violations
+            const checkIframeLoad = setTimeout(() => {
+                if (!errorHandled) {
+                    try {
+                        // Try to access iframe content to detect CSP blocks
+                        const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                        // If we can't access the document, assume CSP block
+                        if (!iframeDoc || iframeDoc.location.href === 'about:blank') {
+                            handleIframeCSPError(url);
+                            errorHandled = true;
+                        }
+                    } catch (e) {
+                        // Cross-origin or CSP error
+                        handleIframeCSPError(url);
+                        errorHandled = true;
+                    }
+                }
+            }, 3000); // Give 3 seconds for load attempt
+            
+            // Listen for successful load
+            iframe.onload = function() {
+                clearTimeout(checkIframeLoad);
+                try {
+                    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                    if (iframeDoc && iframeDoc.location.href !== 'about:blank') {
+                        addAutomationLog(`[IFRAME] Successfully loaded ${url} in iframe`, 'action');
+                        errorHandled = true;
+                    }
+                } catch (e) {
+                    // Even if onload fires, we might not have access due to CSP
+                    if (!errorHandled) {
+                        handleIframeCSPError(url);
+                        errorHandled = true;
+                    }
+                }
+            };
+            
+            // Listen for explicit errors
+            iframe.onerror = function() {
+                clearTimeout(checkIframeLoad);
+                if (!errorHandled) {
+                    handleIframeCSPError(url);
+                    errorHandled = true;
+                }
+            };
+        }
+
+        function handleIframeCSPError(url) {
+            addAutomationLog(`[CSP] Website blocks iframe embedding. Switching to screenshot mode for: ${url}`, 'security');
+            
+            // Display CSP info message in iframe
+            const iframe = document.getElementById('browserFrame');
+            const cspInfoHTML = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <style>
+                        body { 
+                            margin: 0; 
+                            padding: 40px; 
+                            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                            color: white;
+                            text-align: center;
+                            min-height: calc(100vh - 80px);
+                            display: flex;
+                            flex-direction: column;
+                            justify-content: center;
+                            align-items: center;
+                        }
+                        .container {
+                            background: rgba(255, 255, 255, 0.1);
+                            padding: 30px;
+                            border-radius: 12px;
+                            backdrop-filter: blur(10px);
+                            border: 1px solid rgba(255, 255, 255, 0.2);
+                            max-width: 500px;
+                        }
+                        .icon { 
+                            font-size: 4rem; 
+                            margin-bottom: 1rem;
+                            opacity: 0.9;
+                        }
+                        h1 { 
+                            margin: 0 0 1rem 0; 
+                            font-size: 1.5rem;
+                            font-weight: 600;
+                        }
+                        p { 
+                            margin: 0.5rem 0; 
+                            opacity: 0.9;
+                            line-height: 1.5;
+                        }
+                        .url {
+                            background: rgba(255, 255, 255, 0.2);
+                            padding: 8px 12px;
+                            border-radius: 6px;
+                            font-family: monospace;
+                            word-break: break-all;
+                            margin: 1rem 0;
+                        }
+                        .status {
+                            background: rgba(139, 92, 246, 0.3);
+                            color: #c4b5fd;
+                            padding: 8px 16px;
+                            border-radius: 20px;
+                            font-size: 0.9rem;
+                            font-weight: 500;
+                            margin-top: 1rem;
+                            display: inline-block;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <div class="icon">🛡️</div>
+                        <h1>Content Security Policy Active</h1>
+                        <p>This website prevents iframe embedding as a security measure.</p>
+                        <div class="url">${url}</div>
+                        <p>Our automated testing will continue in the background and capture screenshots for analysis.</p>
+                        <div class="status">📸 Screenshot Mode Active</div>
+                    </div>
+                </body>
+                </html>
+            `;
+            
+            iframe.srcdoc = cspInfoHTML;
+            
+            // Request a screenshot from the backend after a short delay
+            setTimeout(() => {
+                socket.emit('request_screenshot', { url: url });
+                addAutomationLog(`[SCREENSHOT] Requesting screenshot capture for analysis...`, 'action');
+            }, 1000);
         }
         
         function testAzureConnection() {
@@ -1145,14 +1287,13 @@
             const majorContainer = document.getElementById('majorIssuesList');
             const majorCount = document.getElementById('majorCount');
             majorCount.textContent = majorIssues.length;
-            
-            if (majorIssues.length === 0) {
+              if (majorIssues.length === 0) {
                 majorContainer.innerHTML = '<p style="color: #6b7280; font-style: italic; font-size: 0.8rem;">No major issues found</p>';
             } else {
                 majorContainer.innerHTML = majorIssues.map(issue => `
                     <div class="issue-item major">
                         <div class="issue-description">
-                            <strong>${issue.category}:</strong> ${issue.description}
+                            <strong>${issue.category}:</strong> ${issue.message}
                         </div>
                         <span class="issue-severity ${issue.severity}">${issue.severity}</span>
                     </div>
@@ -1170,7 +1311,7 @@
                 minorContainer.innerHTML = minorIssues.map(issue => `
                     <div class="issue-item minor">
                         <div class="issue-description">
-                            <strong>${issue.category}:</strong> ${issue.description}
+                            <strong>${issue.category}:</strong> ${issue.message}
                         </div>
                         <span class="issue-severity ${issue.severity}">${issue.severity}</span>
                     </div>
