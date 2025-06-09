@@ -1,0 +1,1399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Website Proctor - Live Automation</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #f1f5f9;
+            overflow: hidden;
+            display: flex;
+            height: 100vh;
+        }
+
+        /* Dashboard Sidebar */
+        .dashboard-container {
+            width: 400px;
+            height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            z-index: 1000;
+            overflow-y: auto;
+            border-right: 3px solid #4f46e5;
+            resize: horizontal;
+            min-width: 300px;
+            max-width: 60vw;
+            overflow-x: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #4f46e5, #7c3aed);
+            color: white;
+            padding: 1rem;
+            text-align: center;
+            position: sticky;
+            top: 0;
+            z-index: 1001;
+            flex-shrink: 0;
+        }
+
+        .header h1 {
+            font-size: 1.2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-left: 8px;
+            animation: pulse 2s infinite;
+        }
+
+        .status-indicator.running {
+            background: #10b981;
+        }
+
+        .status-indicator.stopped {
+            background: #ef4444;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .content {
+            padding: 1rem;
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .section {
+            margin-bottom: 1.5rem;
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07);
+        }
+
+        .section-header {
+            background: #f8fafc;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid #e2e8f0;
+            font-weight: 600;
+            color: #1e293b;
+            font-size: 0.9rem;
+        }
+
+        .section-content {
+            padding: 1rem;
+            font-size: 0.85rem;
+        }
+
+        /* Main Content - Live Automation Viewer */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: #1a1a1a;
+            overflow: hidden;
+        }
+
+        .automation-header {
+            background: #2d2d2d;
+            padding: 1rem;
+            border-bottom: 2px solid #4f46e5;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            color: white;
+        }
+
+        .automation-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .automation-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.9rem;
+        }
+
+        .automation-status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #ef4444;
+            animation: pulse 2s infinite;
+        }
+
+        .automation-status-dot.active {
+            background: #10b981;
+        }
+
+        .automation-body {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Browser Frame */
+        .browser-frame {
+            flex: 1;
+            background: #ffffff;
+            margin: 1rem;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 2px solid #374151;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        .browser-header {
+            background: #f3f4f6;
+            padding: 0.5rem 1rem;
+            border-bottom: 1px solid #d1d5db;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.8rem;
+            color: #374151;
+        }
+
+        .browser-dots {
+            display: flex;
+            gap: 0.3rem;
+        }
+
+        .browser-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .browser-dot.red { background: #ef4444; }
+        .browser-dot.yellow { background: #f59e0b; }
+        .browser-dot.green { background: #10b981; }
+
+        .browser-url {
+            background: #ffffff;
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            padding: 0.25rem 0.5rem;
+            margin-left: 1rem;
+            flex: 1;
+            font-size: 0.75rem;
+        }
+
+        .browser-content {
+            flex: 1;
+            background: #ffffff;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .browser-iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            background: #ffffff;
+        }
+
+        /* Automation Overlay */
+        .automation-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.85);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            color: white;
+            text-align: center;
+            z-index: 20;
+        }
+
+        .automation-overlay.active {
+            display: flex;
+        }
+
+        .automation-action {
+            font-size: 1.3rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: #10b981;
+            text-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+        }
+
+        .automation-phase {
+            font-size: 1rem;
+            color: #94a3b8;
+            margin-bottom: 1.5rem;
+        }
+
+        .automation-progress {
+            width: 300px;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-bottom: 1rem;
+        }
+
+        .automation-progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #10b981, #3b82f6);
+            width: 0%;
+            transition: width 0.5s ease;
+            border-radius: 3px;
+        }
+
+        .automation-details {
+            font-size: 0.9rem;
+            color: #cbd5e1;
+            max-width: 400px;
+            line-height: 1.4;
+        }
+
+        /* Action Indicators */
+        .action-indicator {
+            position: absolute;
+            width: 25px;
+            height: 25px;
+            background: #ef4444;
+            border-radius: 50%;
+            opacity: 0;
+            animation: actionPulse 1.5s ease-out;
+            z-index: 15;
+            border: 3px solid #ffffff;
+            box-shadow: 0 0 15px rgba(239, 68, 68, 0.6);
+        }
+
+        .action-indicator.click {
+            background: #f59e0b;
+            box-shadow: 0 0 15px rgba(245, 158, 11, 0.6);
+        }
+
+        .action-indicator.scroll {
+            background: #3b82f6;
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.6);
+        }
+
+        .action-indicator.analyze {
+            background: #8b5cf6;
+            box-shadow: 0 0 15px rgba(139, 92, 246, 0.6);
+        }
+
+        @keyframes actionPulse {
+            0% { 
+                opacity: 1; 
+                transform: scale(0.5); 
+            }
+            50% {
+                opacity: 0.8;
+                transform: scale(1.2);
+            }
+            100% { 
+                opacity: 0; 
+                transform: scale(2); 
+            }
+        }
+
+        /* Real-time Log */
+        .automation-log {
+            background: #111111;
+            border-top: 2px solid #374151;
+            height: 200px;
+            overflow-y: auto;
+            padding: 1rem;
+            font-family: 'Courier New', monospace;
+            font-size: 0.8rem;
+            color: #94a3b8;
+        }
+
+        .automation-log-entry {
+            margin-bottom: 0.5rem;
+            padding: 0.5rem;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            line-height: 1.3;
+        }
+
+        .automation-log-entry.phase {
+            background: rgba(79, 70, 229, 0.2);
+            color: #a5b4fc;
+            border-left: 3px solid #4f46e5;
+        }
+
+        .automation-log-entry.action {
+            background: rgba(16, 185, 129, 0.2);
+            color: #6ee7b7;
+            border-left: 3px solid #10b981;
+        }
+
+        .automation-log-entry.error {
+            background: rgba(239, 68, 68, 0.2);
+            color: #fca5a5;
+            border-left: 3px solid #ef4444;
+        }
+
+        .automation-log-entry.click {
+            background: rgba(245, 158, 11, 0.2);
+            color: #fcd34d;
+            border-left: 3px solid #f59e0b;
+        }
+
+        .automation-log-entry.security {
+            background: rgba(139, 92, 246, 0.2);
+            color: #c4b5fd;
+            border-left: 3px solid #8b5cf6;
+        }
+
+        .log-timestamp {
+            color: #6b7280;
+            font-size: 0.7rem;
+        }
+
+        /* Dashboard Controls */
+        .controls {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1rem;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 0.75rem;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 0.8rem;
+        }
+
+        .btn-primary {
+            background: #4f46e5;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #3730a3;
+        }
+
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Metrics */
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid #f1f5f9;
+            font-size: 0.8rem;
+        }
+
+        .metric:last-child {
+            border-bottom: none;
+        }
+
+        .metric-label {
+            font-weight: 500;
+            color: #475569;
+        }
+
+        .metric-value {
+            font-weight: 600;
+            color: #1e293b;
+            font-size: 0.8rem;
+        }
+
+        .metric-value.good {
+            color: #059669;
+        }
+
+        .metric-value.warning {
+            color: #d97706;
+        }
+
+        .metric-value.bad {
+            color: #dc2626;
+        }
+
+        /* Other styles */
+        .log-entry {
+            font-size: 0.6rem;
+            padding: 0.25rem;
+            margin-bottom: 0.25rem;
+            background: #f8fafc;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            border-left: 2px solid #e2e8f0;
+        }
+
+        .log-entry.error {
+            background: #fef2f2;
+            border-left-color: #ef4444;
+        }
+
+        .timestamp {
+            color: #6b7280;
+            font-weight: 600;
+        }
+
+        .waiting-message {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #6b7280;
+            font-size: 1.1rem;
+            text-align: center;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .waiting-icon {
+            font-size: 3rem;
+            opacity: 0.5;
+        }
+
+        /* Test Results Styles */
+        .results-category {
+            border-bottom: 1px solid #e5e7eb;
+            padding-bottom: 0.75rem;
+        }
+        
+        .results-category:last-child {
+            border-bottom: none;
+            padding-bottom: 0;
+        }
+        
+        .issues-list {
+            max-height: 120px;
+            overflow-y: auto;
+        }
+        
+        .issue-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.5rem;
+            padding: 0.5rem;
+            margin-bottom: 0.25rem;
+            background: #f9fafb;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            line-height: 1.4;
+        }
+        
+        .issue-item.major {
+            background: #fef2f2;
+            border-left: 3px solid #dc2626;
+        }
+        
+        .issue-item.minor {
+            background: #fffbeb;
+            border-left: 3px solid #f59e0b;
+        }
+        
+        .issue-item.improvement {
+            background: #f0fdf4;
+            border-left: 3px solid #10b981;
+        }
+        
+        .issue-description {
+            flex: 1;
+            color: #374151;
+        }
+        
+        .issue-severity {
+            font-size: 0.7rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .issue-severity.critical {
+            background: #dc2626;
+            color: white;
+        }
+        
+        .issue-severity.major {
+            background: #dc2626;
+            color: white;
+        }
+        
+        .issue-severity.minor {
+            background: #f59e0b;
+            color: white;
+        }
+        
+        .overall-verdict {
+            font-size: 0.9rem;
+            border-radius: 8px;
+            padding: 0.75rem;
+            text-align: center;
+            font-weight: 600;
+        }
+        
+        .overall-verdict.excellent {
+            background: #dcfce7;
+            color: #166534;
+            border: 1px solid #bbf7d0;
+        }
+        
+        .overall-verdict.good {
+            background: #dbeafe;
+            color: #1e40af;
+            border: 1px solid #bfdbfe;
+        }
+        
+        .overall-verdict.needs-improvement {
+            background: #fef3c7;
+            color: #92400e;
+            border: 1px solid #fde68a;
+        }
+        
+        .overall-verdict.poor {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fecaca;
+        }
+
+        /* ...existing section styles... */
+    </style>
+</head>
+<body>
+    <!-- Dashboard Sidebar -->
+    <div class="dashboard-container">
+        <div class="header">
+            <h1>🔍 Website Proctor</h1>
+            <span>Live Monitoring</span>
+            <span class="status-indicator stopped" id="statusIndicator"></span>
+        </div>
+
+        <div class="content">
+            <!-- URL Input -->
+            <div class="section">
+                <div class="section-header">🌐 Website URL</div>
+                <div class="section-content">
+                    <input type="url" id="urlInput" placeholder="https://example.com" 
+                           style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 8px; font-size: 0.9rem;"
+                           value="https://example.com">
+                    <small style="color: #666; font-size: 0.8rem;">Enter website URL to analyze</small>
+                </div>
+            </div>
+
+            <!-- Controls -->
+            <div class="controls">
+                <button class="btn btn-primary" onclick="startMonitoring()" id="startBtn">🚀 Start Analysis</button>
+                <button class="btn btn-danger" onclick="stopMonitoring()" id="stopBtn">⏹️ Stop</button>
+            </div>
+
+            <!-- Real-time Metrics -->
+            <div class="section">
+                <div class="section-header">📊 Real-time Metrics</div>
+                <div class="section-content">
+                    <div class="metric">
+                        <span class="metric-label">Load Time</span>
+                        <span class="metric-value" id="loadTime">--</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Performance Score</span>
+                        <span class="metric-value" id="perfScore">--</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Security Status</span>
+                        <span class="metric-value" id="securityStatus">--</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Analysis Phase</span>
+                        <span class="metric-value" id="currentPhase">Ready</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Current Action -->
+            <div class="section">
+                <div class="section-header">⚡ Current Action</div>
+                <div class="section-content">
+                    <div id="currentAction" style="font-size: 0.9rem; color: #6b7280; font-weight: 500;">
+                        Ready - Enter URL to start analysis
+                    </div>
+                </div>
+            </div>
+
+            <!-- Issues Summary -->
+            <div class="section">
+                <div class="section-header">🚨 Issues Found</div>
+                <div class="section-content" id="issuesContainer">
+                    <p style="color: #6b7280; font-style: italic;">No issues detected yet...</p>
+                </div>
+            </div>
+
+            <!-- Test Results Summary -->
+            <div class="section" id="testResultsSection" style="display: none;">
+                <div class="section-header">📋 Test Results</div>
+                <div class="section-content">
+                    <!-- Overall Verdict -->
+                    <div id="overallVerdict" style="margin-bottom: 1rem; padding: 0.75rem; border-radius: 6px; font-weight: 600; text-align: center;">
+                        Analysis in progress...
+                    </div>
+                    
+                    <!-- Major Issues -->
+                    <div class="results-category">
+                        <div class="results-category-header" style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; font-weight: 600; color: #dc2626;">
+                            <span>🔴</span>
+                            <span>Major Issues</span>
+                            <span class="issue-count" id="majorCount" style="background: #dc2626; color: white; border-radius: 12px; padding: 2px 8px; font-size: 0.75rem;">0</span>
+                        </div>
+                        <div id="majorIssuesList" class="issues-list">
+                            <p style="color: #6b7280; font-style: italic;">No major issues found</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Minor Issues -->
+                    <div class="results-category" style="margin-top: 1rem;">
+                        <div class="results-category-header" style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; font-weight: 600; color: #f59e0b;">
+                            <span>🟡</span>
+                            <span>Minor Issues</span>
+                            <span class="issue-count" id="minorCount" style="background: #f59e0b; color: white; border-radius: 12px; padding: 2px 8px; font-size: 0.75rem;">0</span>
+                        </div>
+                        <div id="minorIssuesList" class="issues-list">
+                            <p style="color: #6b7280; font-style: italic; font-size: 0.8rem;">No minor issues found</p>
+                        </div>
+                    </div>
+                      <!-- Areas of Improvement -->
+                    <div class="results-category" style="margin-top: 1rem;">
+                        <div class="results-category-header" style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; font-weight: 600; color: #10b981;">
+                            <span>💡</span>
+                            <span>Areas of Improvement</span>
+                            <span class="issue-count" id="improvementCount" style="background: #10b981; color: white; border-radius: 12px; padding: 2px 8px; font-size: 0.75rem;">0</span>
+                        </div>
+                        <div id="improvementsList" class="issues-list">
+                            <p style="color: #6b7280; font-style: italic; font-size: 0.8rem;">No suggestions available</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Test Summary -->
+                    <div style="margin-top: 1rem; padding: 0.75rem; background: #f3f4f6; border-radius: 6px; border-left: 4px solid #4f46e5;">
+                        <div style="font-weight: 600; margin-bottom: 0.5rem; color: #374151;">📊 Analysis Summary</div>
+                        <div style="font-size: 0.8rem; color: #6b7280;">
+                            <div id="testSummaryContent">Test not completed yet</div>
+                        </div>
+                    </div>
+                </div>
+            </div>            <!-- Azure Status -->
+            <div class="section">
+                <div class="section-header">☁️ Azure Status</div>
+                <div class="section-content" id="azureStatus">                    <div class="metric">
+                        <span class="metric-label">Computer Vision</span>
+                        <span class="metric-value" id="azureCV">Testing...</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Text Analytics</span>
+                        <span class="metric-value" id="azureText">Testing...</span>
+                    </div>
+                    <div id="azureErrorDetails" style="display:none; margin-top:8px; color:#dc2626; font-size:0.95em;"></div>
+                    <button onclick="testAzureConnection()" style="width: 100%; margin-top: 8px; padding: 4px; font-size: 0.8rem; background: #4f46e5; color: white; border: none; border-radius: 4px; cursor: pointer;">🔄 Test Azure (SocketIO)</button>
+                    <button onclick="testAzureHTTP()" style="width: 100%; margin-top: 4px; padding: 4px; font-size: 0.8rem; background: #059669; color: white; border: none; border-radius: 4px; cursor: pointer;">🌐 Test Azure (HTTP)</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content - Live Automation Viewer -->
+    <div class="main-content">
+        <div class="automation-header">
+            <div class="automation-title">
+                🤖 Live Automation Testing
+            </div>
+            <div class="automation-status">
+                <span id="automationStatusText">Idle</span>
+                <div class="automation-status-dot" id="automationStatusDot"></div>
+            </div>
+        </div>
+
+        <div class="automation-body">
+            <div class="browser-frame">
+                <div class="browser-header">
+                    <div class="browser-dots">
+                        <div class="browser-dot red"></div>
+                        <div class="browser-dot yellow"></div>
+                        <div class="browser-dot green"></div>
+                    </div>
+                    <input class="browser-url" id="browserUrl" value="about:blank" readonly>
+                </div>
+                
+                <div class="browser-content">
+                    <iframe class="browser-iframe" id="browserFrame" src="about:blank"></iframe>
+                    
+                    <!-- Automation Overlay -->
+                    <div class="automation-overlay" id="automationOverlay">
+                        <div class="automation-action" id="overlayAction">Initializing...</div>
+                        <div class="automation-phase" id="overlayPhase">Preparing browser automation</div>
+                        <div class="automation-progress">
+                            <div class="automation-progress-bar" id="overlayProgress"></div>
+                        </div>
+                        <div class="automation-details" id="overlayDetails">
+                            Starting automated testing sequence...
+                        </div>
+                    </div>
+
+                    <!-- Waiting Message -->
+                    <div class="waiting-message" id="waitingMessage">
+                        <div class="waiting-icon">🎯</div>
+                        <div>
+                            <h3>Ready for Live Automation Testing</h3>
+                            <p>Enter a website URL and click "Start Analysis" to see automated testing in action</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Live Automation Log -->
+            <div class="automation-log" id="automationLog">
+                <div class="automation-log-entry action">
+                    <span class="log-timestamp">[00:00:00]</span> System ready for automated website testing
+                </div>
+            </div>
+        </div>
+    </div>    <script>
+        const socket = io();
+        let currentUrl = '';
+        let automationActive = false;
+        let currentPhase = 1;
+        let maxPhases = 6;
+
+        // Add SocketIO connection debugging
+        socket.on('connect', function() {
+            console.log('SocketIO connected successfully');
+            addAutomationLog('[SOCKETIO] Connected to server', 'action');
+            // Test Azure immediately after connection
+            setTimeout(() => testAzureConnection(), 500);
+        });
+
+        socket.on('disconnect', function() {
+            console.log('SocketIO disconnected');
+            addAutomationLog('[SOCKETIO] Disconnected from server', 'error');
+        });
+
+        socket.on('connect_error', function(error) {
+            console.log('SocketIO connection error:', error);
+            addAutomationLog('[SOCKETIO] Connection error - using HTTP fallback', 'error');
+            // Fallback to HTTP testing
+            testAzureHTTP();
+        });
+
+        // Initialize
+        function init() {
+            addAutomationLog('System initialized - Ready for live automation testing', 'action');
+            
+            // Test Azure connection via HTTP immediately as fallback
+            testAzureHTTP();
+            
+            // Check SocketIO connection status after a delay
+            setTimeout(() => {
+                if (socket.connected) {
+                    addAutomationLog('[INFO] SocketIO connected successfully', 'action');
+                } else {
+                    addAutomationLog('[WARNING] SocketIO not connected, using HTTP fallback only', 'action');
+                }            }, 2000);
+        }
+
+        // Dashboard Functions
+        function startMonitoring() {
+            const urlInput = document.getElementById('urlInput');
+            const url = urlInput.value.trim();
+            
+            // Enhanced URL validation with better user feedback
+            if (!url) {
+                urlInput.focus();
+                urlInput.style.borderColor = '#dc2626';
+                urlInput.style.boxShadow = '0 0 5px rgba(220, 38, 38, 0.3)';
+                
+                // Show user-friendly message
+                document.getElementById('currentAction').textContent = '⚠️ Please enter a website URL to analyze';
+                document.getElementById('currentAction').style.color = '#dc2626';
+                
+                setTimeout(() => {
+                    urlInput.style.borderColor = '#ddd';
+                    urlInput.style.boxShadow = 'none';
+                    document.getElementById('currentAction').style.color = '';
+                }, 3000);
+                
+                return;
+            }
+            
+            // Validate URL format
+            const urlPattern = /^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$/;
+            const hasProtocol = url.startsWith('http://') || url.startsWith('https://');
+            const urlToTest = hasProtocol ? url : 'https://' + url;
+            
+            if (!urlPattern.test(urlToTest.replace(/^https?:\/\//, ''))) {
+                urlInput.focus();
+                urlInput.style.borderColor = '#dc2626';
+                urlInput.style.boxShadow = '0 0 5px rgba(220, 38, 38, 0.3)';
+                
+                document.getElementById('currentAction').textContent = '⚠️ Please enter a valid website URL (e.g., example.com)';
+                document.getElementById('currentAction').style.color = '#dc2626';
+                
+                setTimeout(() => {
+                    urlInput.style.borderColor = '#ddd';
+                    urlInput.style.boxShadow = 'none';
+                    document.getElementById('currentAction').style.color = '';
+                }, 3000);
+                
+                return;
+            }
+            
+            // Add protocol if missing
+            let validUrl = url;
+            if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                validUrl = 'https://' + url;
+                urlInput.value = validUrl;
+            }
+            
+            // Reset any previous error styling
+            urlInput.style.borderColor = '#10b981';
+            urlInput.style.boxShadow = '0 0 5px rgba(16, 185, 129, 0.3)';
+            document.getElementById('currentAction').textContent = 'Starting analysis...';
+            document.getElementById('currentAction').style.color = '#10b981';
+            
+            setTimeout(() => {
+                urlInput.style.borderColor = '#ddd';
+                urlInput.style.boxShadow = 'none';
+                document.getElementById('currentAction').style.color = '';
+            }, 2000);
+            
+            currentUrl = validUrl;
+            automationActive = true;
+            currentPhase = 1;
+            
+            // Hide test results from previous analysis
+            hideTestResults();
+            
+            // Update UI
+            document.getElementById('statusIndicator').className = 'status-indicator running';
+            document.getElementById('automationStatusDot').className = 'automation-status-dot active';
+            document.getElementById('automationStatusText').textContent = 'Testing';
+            document.getElementById('browserUrl').value = validUrl;
+            
+            // Show automation overlay
+            showAutomationOverlay('Connecting to website...', 'Phase 1: Initial Connection', 'Establishing connection to ' + validUrl);
+            
+            // Hide waiting message and try to load the site in iframe
+            document.getElementById('waitingMessage').style.display = 'none';
+            document.getElementById('browserFrame').src = validUrl;
+            
+            // Start monitoring
+            socket.emit('start_monitoring', { url: validUrl });
+            addAutomationLog(`[START] Beginning automated analysis of: ${validUrl}`, 'phase');
+        }
+
+        function stopMonitoring() {
+            automationActive = false;
+            socket.emit('stop_monitoring');
+            
+            // Update UI
+            document.getElementById('statusIndicator').className = 'status-indicator stopped';
+            document.getElementById('automationStatusDot').className = 'automation-status-dot';
+            document.getElementById('automationStatusText').textContent = 'Idle';
+            document.getElementById('currentAction').textContent = 'Ready - Enter URL to start analysis';
+            document.getElementById('currentPhase').textContent = 'Ready';
+            
+            // Hide overlay
+            hideAutomationOverlay();
+            
+            addAutomationLog('[STOP] Monitoring stopped by user', 'error');
+        }
+        
+        function testAzureConnection() {
+            // Update UI to show testing state
+            document.getElementById('azureCV').textContent = 'Testing...';
+            document.getElementById('azureText').textContent = 'Testing...';
+            document.getElementById('azureCV').className = 'metric-value';
+            document.getElementById('azureText').className = 'metric-value';
+            
+            socket.emit('test_azure');
+            addAutomationLog('[AZURE] Testing cloud service connections...', 'action');
+        }        function testAzureHTTP() {
+            // Alternative HTTP-based test
+            addAutomationLog('[AZURE] Testing via HTTP API...', 'action');
+            fetch('/api/azure-test')
+                .then(response => response.json())
+                .then(data => {
+                    console.log('HTTP Azure test results:', data);
+                    if (data.test_results) {
+                        updateAzureStatus(data.test_results);
+                        addAutomationLog('[AZURE] HTTP test completed successfully', 'action');
+                    }
+                })
+                .catch(error => {
+                    console.error('Azure HTTP test failed:', error);
+                    addAutomationLog('[AZURE] HTTP test failed', 'error');
+                });
+        }
+
+        // Automation Overlay Functions
+        function showAutomationOverlay(action, phase, details) {
+            const overlay = document.getElementById('automationOverlay');
+            document.getElementById('overlayAction').textContent = action;
+            document.getElementById('overlayPhase').textContent = phase;
+            document.getElementById('overlayDetails').textContent = details;
+            overlay.classList.add('active');
+            
+            // Update progress
+            const progress = (currentPhase / maxPhases) * 100;
+            document.getElementById('overlayProgress').style.width = progress + '%';
+        }
+
+        function hideAutomationOverlay() {
+            document.getElementById('automationOverlay').classList.remove('active');
+        }
+
+        function updateAutomationOverlay(action, phase, details) {
+            if (automationActive) {
+                showAutomationOverlay(action, phase, details);
+            }
+        }
+
+        // Action Indicators
+        function showActionIndicator(x, y, type = 'click') {
+            const indicator = document.createElement('div');
+            indicator.className = `action-indicator ${type}`;
+            indicator.style.left = x + 'px';
+            indicator.style.top = y + 'px';
+            
+            const browserContent = document.querySelector('.browser-content');
+            browserContent.appendChild(indicator);
+            
+            // Remove after animation
+            setTimeout(() => {
+                if (indicator.parentNode) {
+                    indicator.parentNode.removeChild(indicator);
+                }
+            }, 1500);
+        }
+
+        // Automation Log
+        function addAutomationLog(message, type = 'action') {
+            const log = document.getElementById('automationLog');
+            const timestamp = new Date().toLocaleTimeString();
+            
+            const entry = document.createElement('div');
+            entry.className = `automation-log-entry ${type}`;
+            entry.innerHTML = `<span class="log-timestamp">[${timestamp}]</span> ${message}`;
+            
+            log.insertBefore(entry, log.firstChild);
+            
+            // Keep only last 50 entries
+            while (log.children.length > 50) {
+                log.removeChild(log.lastChild);
+            }
+        }
+
+        // Metrics Updates
+        function updateMetrics(data) {
+            if (data.load_time) {
+                document.getElementById('loadTime').textContent = data.load_time + 'ms';
+                document.getElementById('loadTime').className = 'metric-value ' + 
+                    (data.load_time > 3000 ? 'bad' : data.load_time > 1500 ? 'warning' : 'good');
+            }
+            
+            if (data.performance_score) {
+                document.getElementById('perfScore').textContent = data.performance_score + '/100';
+                document.getElementById('perfScore').className = 'metric-value ' + 
+                    (data.performance_score < 60 ? 'bad' : data.performance_score < 80 ? 'warning' : 'good');
+            }
+            
+            if (data.security_status) {
+                document.getElementById('securityStatus').textContent = data.security_status;
+                document.getElementById('securityStatus').className = 'metric-value ' + 
+                    (data.security_status === 'Poor' ? 'bad' : data.security_status === 'Good' ? 'good' : 'warning');
+            }
+
+            if (data.analysis_phase) {
+                document.getElementById('currentPhase').textContent = data.analysis_phase;
+            }
+
+            if (data.current_action) {
+                document.getElementById('currentAction').textContent = data.current_action;
+            }
+        }
+
+        function updateIssues(issues) {
+            const container = document.getElementById('issuesContainer');
+            if (!issues || issues.length === 0) {
+                container.innerHTML = '<p style="color: #6b7280; font-style: italic;">No issues detected</p>';
+                return;
+            }
+
+            const majorIssues = issues.filter(i => i.severity === 'major').length;
+            const minorIssues = issues.filter(i => i.severity === 'minor').length;
+
+            container.innerHTML = `
+                <div style="font-size: 0.9rem;">
+                    <div style="color: #dc2626; margin-bottom: 0.5rem;">🔴 Major Issues: ${majorIssues}</div>
+                    <div style="color: #f59e0b; margin-bottom: 0.5rem;">🟡 Minor Issues: ${minorIssues}</div>
+                    <div style="color: #6b7280; font-size: 0.8rem;">Total: ${issues.length} issues found</div>
+                </div>
+            `;
+        }
+        
+        function updateAzureStatus(status) {
+            const cvElement = document.getElementById('azureCV');
+            const textElement = document.getElementById('azureText');
+            const errorElement = document.getElementById('azureErrorDetails');
+            console.log('[DEBUG] updateAzureStatus called with:', status, cvElement, textElement);
+            // Defensive: If elements are missing, log error
+            if (!cvElement || !textElement) {
+                console.error('[ERROR] Azure status elements not found in DOM!');
+                return;
+            }
+            // Update Computer Vision status
+            if (status.computer_vision) {
+                cvElement.textContent = status.computer_vision.success ? '✅ Connected' : '❌ Failed';
+                cvElement.className = 'metric-value ' + (status.computer_vision.success ? 'good' : 'bad');
+            } else {
+                cvElement.textContent = '❓ Unknown';
+                cvElement.className = 'metric-value warning';
+            }
+            // Update Text Analytics status
+            if (status.text_analytics) {
+                textElement.textContent = status.text_analytics.success ? '✅ Connected' : '❌ Failed';
+                textElement.className = 'metric-value ' + (status.text_analytics.success ? 'good' : 'bad');
+            } else {
+                textElement.textContent = '❓ Unknown';
+                textElement.className = 'metric-value warning';
+            }
+            // Show Azure error details if any
+            if (errorElement) {
+                if (status.errors && status.errors.length > 0) {
+                    errorElement.style.display = 'block';
+                    errorElement.innerHTML = '<b>Azure Error Details:</b><br>' + status.errors.map(e => `<div style="color:#dc2626;font-size:0.9em;">${e}</div>`).join('');
+                } else {
+                    errorElement.style.display = 'none';
+                    errorElement.innerHTML = '';
+                }
+            }
+        }
+
+        // Test Results Display Functions
+        function updateTestResults(data) {
+            // Show the test results section
+            document.getElementById('testResultsSection').style.display = 'block';
+            
+            // Update issues and improvements
+            if (data.issues) {
+                populateIssuesByCategory(data.issues);
+            }
+            
+            if (data.suggestions) {
+                populateImprovements(data.suggestions);
+            }
+            
+            // Update overall verdict
+            updateOverallVerdict(data);
+            
+            // Update test summary
+            updateTestSummary(data);
+        }
+        
+        function populateIssuesByCategory(issues) {
+            const majorIssues = issues.filter(issue => issue.severity === 'major' || issue.severity === 'critical');
+            const minorIssues = issues.filter(issue => issue.severity === 'minor');
+            
+            // Update major issues
+            const majorContainer = document.getElementById('majorIssuesList');
+            const majorCount = document.getElementById('majorCount');
+            majorCount.textContent = majorIssues.length;
+            
+            if (majorIssues.length === 0) {
+                majorContainer.innerHTML = '<p style="color: #6b7280; font-style: italic; font-size: 0.8rem;">No major issues found</p>';
+            } else {
+                majorContainer.innerHTML = majorIssues.map(issue => `
+                    <div class="issue-item major">
+                        <div class="issue-description">
+                            <strong>${issue.category}:</strong> ${issue.description}
+                        </div>
+                        <span class="issue-severity ${issue.severity}">${issue.severity}</span>
+                    </div>
+                `).join('');
+            }
+            
+            // Update minor issues
+            const minorContainer = document.getElementById('minorIssuesList');
+            const minorCount = document.getElementById('minorCount');
+            minorCount.textContent = minorIssues.length;
+            
+            if (minorIssues.length === 0) {
+                minorContainer.innerHTML = '<p style="color: #6b7280; font-style: italic; font-size: 0.8rem;">No minor issues found</p>';
+            } else {
+                minorContainer.innerHTML = minorIssues.map(issue => `
+                    <div class="issue-item minor">
+                        <div class="issue-description">
+                            <strong>${issue.category}:</strong> ${issue.description}
+                        </div>
+                        <span class="issue-severity ${issue.severity}">${issue.severity}</span>
+                    </div>
+                `).join('');
+            }
+        }
+        
+        function populateImprovements(suggestions) {
+            const improvementContainer = document.getElementById('improvementsList');
+            const improvementCount = document.getElementById('improvementCount');
+            improvementCount.textContent = suggestions.length;
+            
+            if (suggestions.length === 0) {
+                improvementContainer.innerHTML = '<p style="color: #6b7280; font-style: italic; font-size: 0.8rem;">No suggestions available</p>';
+            } else {
+                improvementContainer.innerHTML = suggestions.map((suggestion, index) => `
+                    <div class="issue-item improvement">
+                        <div class="issue-description">
+                            ${suggestion}
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+        
+        function updateOverallVerdict(data) {
+            const verdictElement = document.getElementById('overallVerdict');
+            const majorIssues = data.issues ? data.issues.filter(i => i.severity === 'major' || i.severity === 'critical').length : 0;
+            const minorIssues = data.issues ? data.issues.filter(i => i.severity === 'minor').length : 0;
+            const performanceScore = data.performance_score || 0;
+            
+            let verdictClass = '';
+            let verdictText = '';
+            
+            if (majorIssues === 0 && minorIssues <= 1 && performanceScore >= 90) {
+                verdictClass = 'excellent';
+                verdictText = '🏆 EXCELLENT - Outstanding website state';
+            } else if (majorIssues === 0 && minorIssues <= 3 && performanceScore >= 75) {
+                verdictClass = 'good';
+                verdictText = '✅ GOOD - Good overall state with minor improvements needed';
+            } else if (majorIssues <= 2 && performanceScore >= 60) {
+                verdictClass = 'needs-improvement';
+                verdictText = '⚠️ NEEDS IMPROVEMENT - Several issues require attention';
+            } else {
+                verdictClass = 'poor';
+                verdictText = '❌ POOR - Significant issues found requiring immediate attention';
+            }
+            
+            verdictElement.className = `overall-verdict ${verdictClass}`;
+            verdictElement.textContent = verdictText;
+        }
+        
+        function updateTestSummary(data) {
+            const summaryElement = document.getElementById('testSummaryContent');
+            const loadTime = data.load_time || 0;
+            const performanceScore = data.performance_score || 0;
+            const securityStatus = data.security_status || 'Unknown';
+            const totalIssues = data.issues ? data.issues.length : 0;
+            const suggestions = data.suggestions ? data.suggestions.length : 0;
+            
+            const completionTime = new Date().toLocaleTimeString();
+            
+            summaryElement.innerHTML = `
+                <div style="margin-bottom: 0.5rem;">
+                    <strong>Analysis completed at:</strong> ${completionTime}
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 0.75rem;">
+                    <div><strong>Load Time:</strong> ${loadTime}ms</div>
+                    <div><strong>Performance:</strong> ${performanceScore}/100</div>
+                    <div><strong>Security:</strong> ${securityStatus}</div>
+                    <div><strong>Total Issues:</strong> ${totalIssues}</div>
+                    <div><strong>Suggestions:</strong> ${suggestions}</div>
+                    <div><strong>Analysis Phases:</strong> 6 completed</div>
+                </div>
+            `;
+        }
+        
+        function hideTestResults() {
+            document.getElementById('testResultsSection').style.display = 'none';
+        }
+
+        // ...existing functions continue...        // Socket Event Listeners
+        socket.on('connect', function() {
+            addAutomationLog('[CONNECT] Connected to proctor service', 'action');
+            // Test Azure connection once we're connected
+            testAzureConnection();
+        });socket.on('monitoring_started', function(data) {
+            addAutomationLog(`[STARTED] ${data.message}`, 'phase');
+            // Hide previous test results when starting new analysis
+            hideTestResults();
+        });
+
+        socket.on('monitoring_stopped', function(data) {
+            addAutomationLog(`[STOPPED] ${data.message}`, 'error');
+            stopMonitoring();
+        });
+
+        socket.on('metrics_update', function(data) {
+            updateMetrics(data);
+            addAutomationLog(`[METRICS] Performance: ${data.performance_score || 'N/A'}/100, Load: ${data.load_time || 'N/A'}ms`, 'action');
+        });
+
+        socket.on('current_action', function(data) {
+            if (automationActive) {
+                currentPhase = data.phase || currentPhase;
+                updateAutomationOverlay(data.action, `Phase ${currentPhase}: Testing`, data.action);
+                addAutomationLog(`[PHASE ${currentPhase}] ${data.action}`, 'phase');
+                
+                // Simulate action indicators for demo
+                if (data.action.includes('click')) {
+                    setTimeout(() => showActionIndicator(Math.random() * 300 + 100, Math.random() * 200 + 100, 'click'), 500);
+                } else if (data.action.includes('scroll')) {
+                    setTimeout(() => showActionIndicator(Math.random() * 300 + 100, Math.random() * 200 + 100, 'scroll'), 500);
+                } else if (data.action.includes('analy')) {
+                    setTimeout(() => showActionIndicator(Math.random() * 300 + 100, Math.random() * 200 + 100, 'analyze'), 500);
+                }
+            }
+        });
+
+        socket.on('issue_update', function(issue) {
+            addAutomationLog(`[${issue.severity.toUpperCase()}] ${issue.message}`, 'error');
+        });
+
+        socket.on('activity_update', function(activity) {
+            const logType = activity.level === 'error' ? 'error' : 
+                           activity.message.includes('PHASE') ? 'phase' :
+                           activity.message.includes('CLICK') ? 'click' :
+                           activity.message.includes('SECURITY') ? 'security' : 'action';
+            addAutomationLog(activity.message, logType);
+        });        socket.on('test_complete', function(data) {
+            addAutomationLog('[COMPLETE] Website analysis completed!', 'phase');
+            
+            if (data.metrics) updateMetrics(data.metrics);
+            if (data.issues) updateIssues(data.issues);
+            
+            // Update the comprehensive test results display
+            updateTestResults(data);
+            
+            // Hide overlay and show completion
+            hideAutomationOverlay();
+            automationActive = false;
+            
+            document.getElementById('statusIndicator').className = 'status-indicator stopped';
+            document.getElementById('automationStatusDot').className = 'automation-status-dot';
+            document.getElementById('automationStatusText').textContent = 'Complete';
+            document.getElementById('currentAction').textContent = 'Analysis completed - Review results';
+            
+            const issues = data.issues || [];
+            const majorIssues = issues.filter(i => i.severity === 'major').length;
+            const minorIssues = issues.filter(i => i.severity === 'minor').length;
+            
+            addAutomationLog(`[RESULTS] Found ${majorIssues} major issues, ${minorIssues} minor issues`, 'phase');
+        });        socket.on('azure_test_results', function(data) {
+            console.log('Received Azure test results:', data); // Debug log
+            updateAzureStatus(data);
+            addAutomationLog('[AZURE] Cloud service connection test completed', 'action');
+        });        socket.on('website_screenshot', function(data) {
+            // Display the screenshot in the iframe by creating an HTML page with the image
+            const iframe = document.getElementById('browserFrame');
+            const screenshotHTML = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <style>
+                        body { 
+                            margin: 0; 
+                            padding: 0; 
+                            display: flex; 
+                            justify-content: center; 
+                            align-items: flex-start; 
+                            background-color: #f0f0f0;
+                        }
+                        img { 
+                            max-width: 100%; 
+                            height: auto; 
+                            border: 1px solid #ddd;
+                            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+                        }
+                    </style>
+                </head>
+                <body>
+                    <img src="${data.screenshot}" alt="Website Screenshot" />
+                </body>
+                </html>
+            `;
+            
+            // Set the iframe content to display the screenshot
+            iframe.srcdoc = screenshotHTML;
+            
+            // Update the browser URL bar if URL is provided
+            if (data.url) {
+                document.getElementById('browserUrl').value = data.url;
+            }
+            
+            // Hide waiting message if it's visible
+            document.getElementById('waitingMessage').style.display = 'none';
+            
+            // Log the screenshot update
+            addAutomationLog(`[SCREENSHOT] Website visual captured at ${data.timestamp}`, 'action');
+        });
+
+        socket.on('website_error', function(data) {
+            addAutomationLog(`[ERROR] Website validation failed: ${data.error}`, 'error');
+            hideAutomationOverlay();
+            automationActive = false;
+            document.getElementById('waitingMessage').style.display = 'flex';
+            document.getElementById('waitingMessage').innerHTML = `
+                <div class="waiting-icon">❌</div>
+                <div>
+                    <h3>Website Not Accessible</h3>
+                    <p>${data.error}</p>
+                    <p style="margin-top: 1rem; color: #dc2626; font-weight: bold;">This website is not real or not accessible!</p>
+                </div>
+            `;
+        });
+
+        socket.on('error', function(data) {
+            addAutomationLog(`[ERROR] ${data.message}`, 'error');
+        });
+
+        // Initialize on load
+        init();
+    </script>
+</body>
+</html>
